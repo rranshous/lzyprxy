@@ -1,47 +1,13 @@
 package main
 
 import (
+	"./atc"
 	"flag"
 	"fmt"
 	"github.com/elazarl/goproxy"
-	"github.com/rubyist/circuitbreaker"
 	"log"
 	"net/http"
 )
-
-type breakTracker struct {
-	hostBreakers   map[string]circuit.Breaker
-	successChannel chan string
-	failureChannel chan string
-}
-
-func createBreakTracker(host string) *breakTracker {
-	t := &breakTracker{
-		hostBreakers:   make(map[string]circuit.Breaker),
-		successChannel: make(chan string),
-		failureChannel: make(chan string),
-	}
-	return t
-}
-
-func (t *breakTracker) start() {
-	for {
-		select {
-		case host := <-t.successChannel:
-			t.hostBreakers[host].Fail()
-		case host := <-t.failureChannel:
-			t.hostBreakers[host].Success()
-		}
-	}
-}
-
-func (t *breakTracker) success(host string) {
-	t.successChannel <- host
-}
-
-func (t *breakTracker) failure(host string) {
-	t.failureChannel <- host
-}
 
 func main() {
 	verbose := flag.Bool("v", false, "should every proxy request be logged to stdout")
@@ -49,6 +15,8 @@ func main() {
 	flag.Parse()
 	proxy := goproxy.NewProxyHttpServer()
 	proxy.Verbose = *verbose
+
+	atc := atc.NewAirTrafficControl()
 
 	type responseStatus struct {
 		host   string
@@ -61,34 +29,31 @@ func main() {
 	}
 
 	requests := make(chan requestStatus)
-	requestCounts := make(map[string]int64)
 	responses := make(chan responseStatus)
-	responseCounts := make(map[string]int64)
 
 	go func() {
 		for {
 			msg := <-requests
 			fmt.Println("request host", msg.host)
-			requestCounts[msg.host] += 1
-			for host, count := range requestCounts {
-				fmt.Println("Rq[", host, "]", count)
-			}
 		}
 	}()
 
 	go func() {
 		for {
 			msg := <-responses
-			fmt.Println("response host", msg.host, "status", msg.status, "len", msg.length)
-			responseCounts[msg.host] += 1
-			for host, count := range responseCounts {
-				fmt.Println("Re[", host, "]", count)
+			fmt.Println("respons host", msg.host, "status", msg.status, "len", msg.length)
+			// report our status to air traffic control
+			if msg.status > 499 {
+				atc.ReportFailure(msg.host)
+			} else {
+				atc.ReportSuccess(msg.host)
 			}
 		}
 	}()
 
 	proxy.OnRequest().DoFunc(
 		func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+			// todo: fail request if not cleared
 			requests <- requestStatus{r.Host}
 			return r, nil
 		})

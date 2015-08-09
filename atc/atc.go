@@ -1,9 +1,8 @@
-package main
+package atc
 
 import (
 	"fmt"
 	"github.com/rubyist/circuitbreaker"
-	"time"
 )
 
 type Message struct {
@@ -44,8 +43,10 @@ func runAirTrafficControl(rc chan Message) bool {
 				msg.Reply("ABORT", rc)
 			}
 		case "SUCCESS":
+			fmt.Println("circuit report success")
 			cb.Success()
 		case "FAILURE":
+			fmt.Println("circuit report failure")
 			cb.Fail()
 		}
 
@@ -57,50 +58,32 @@ func NewAirTrafficControl() *AirTrafficControl {
 	atc := &AirTrafficControl{
 		panel: circuit.NewPanel(),
 		rc:    make(chan Message)}
-	go runAirTrafficControl(atc.rc)
+	go runAirTrafficControl(atc.rc) // start its go routine
 	return atc
 }
 
-func (atc *AirTrafficControl) JoinQueue(h string) chan Message {
+func (atc *AirTrafficControl) GetClearance(h string) bool {
 	rc := make(chan Message)
 	atc.rc <- Message{
 		rc:     rc,
 		target: h,
 		msg:    "JOIN"}
-	return rc
+	msg := <-rc
+	return msg.msg == "CLEARED"
 }
 
-func main() {
-	fmt.Println("--TESTING")
+func (atc *AirTrafficControl) ReportFailure(h string) bool {
+	atc.rc <- Message{
+		rc:     nil,
+		target: h,
+		msg:    "FAILURE"}
+	return true
+}
 
-	atc := NewAirTrafficControl()
-	for i := 0; i < 11113; i++ {
-		time.Sleep(1000000)
-
-		rc := atc.JoinQueue("testtarget")
-		defer close(rc)
-
-		abort := false
-		waiting := true
-		var msg Message
-		for abort == false && waiting == true {
-			msg = <-rc
-			switch msg.msg {
-			case "WAIT":
-				waiting = true
-			case "ABORT":
-				abort = true
-			case "CLEARED":
-				waiting = false
-			}
-		}
-		if !abort {
-			fmt.Println("we're a go!", i)
-			msg.Reply("FAILURE", rc)
-		} else {
-			fmt.Println("we've aborted!", i)
-		}
-		time.Sleep(5)
-	}
-	fmt.Println("--DONE TESTING")
+func (atc *AirTrafficControl) ReportSuccess(h string) bool {
+	atc.rc <- Message{
+		rc:     nil,
+		target: h,
+		msg:    "SUCCESS"}
+	return true
 }

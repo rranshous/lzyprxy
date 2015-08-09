@@ -4,9 +4,44 @@ import (
 	"flag"
 	"fmt"
 	"github.com/elazarl/goproxy"
+	"github.com/rubyist/circuitbreaker"
 	"log"
 	"net/http"
 )
+
+type breakTracker struct {
+	hostBreakers   map[string]circuit.Breaker
+	successChannel chan string
+	failureChannel chan string
+}
+
+func createBreakTracker(host string) *breakTracker {
+	t := &breakTracker{
+		hostBreakers:   make(map[string]circuit.Breaker),
+		successChannel: make(chan string),
+		failureChannel: make(chan string),
+	}
+	return t
+}
+
+func (t *breakTracker) start() {
+	for {
+		select {
+		case host := <-t.successChannel:
+			t.hostBreakers[host].Fail()
+		case host := <-t.failureChannel:
+			t.hostBreakers[host].Success()
+		}
+	}
+}
+
+func (t *breakTracker) success(host string) {
+	t.successChannel <- host
+}
+
+func (t *breakTracker) failure(host string) {
+	t.failureChannel <- host
+}
 
 func main() {
 	verbose := flag.Bool("v", false, "should every proxy request be logged to stdout")

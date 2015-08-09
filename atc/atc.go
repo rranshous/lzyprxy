@@ -34,7 +34,6 @@ func runAirTrafficControl(rc chan Message) bool {
 		case "JOIN":
 			// add new breaker for this target if first time seen
 			if !ok {
-				// panel.Add(msg.target, circuit.NewThresholdBreaker(1))
 				panel.Add(msg.target, circuit.NewRateBreaker(0.10, 10))
 			}
 			if cb.Ready() {

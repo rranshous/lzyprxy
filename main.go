@@ -9,6 +9,10 @@ import (
 	"net/http"
 )
 
+func isFailure(status int) bool {
+	return status > 499
+}
+
 func main() {
 	verbose := flag.Bool("v", false, "should every proxy request be logged to stdout")
 	addr := flag.String("addr", ":8080", "proxy listen address")
@@ -28,22 +32,24 @@ func main() {
 		host string
 	}
 
-	requests := make(chan requestStatus)
+	//requests := make(chan requestStatus)
 	responses := make(chan responseStatus)
 
-	go func() {
-		for {
-			msg := <-requests
-			fmt.Println("request host", msg.host)
-		}
-	}()
+	/*
+		go func() {
+			for {
+				msg := <-requests
+				fmt.Println("request host", msg.host)
+			}
+		}()
+	*/
 
 	go func() {
 		for {
 			msg := <-responses
 			fmt.Println("respons host", msg.host, "status", msg.status, "len", msg.length)
-			// report our status to air traffic control
-			if msg.status > 499 {
+
+			if isFailure(msg.status) {
 				atc.ReportFailure(msg.host)
 			} else {
 				atc.ReportSuccess(msg.host)
@@ -54,7 +60,16 @@ func main() {
 	proxy.OnRequest().DoFunc(
 		func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 			// todo: fail request if not cleared
-			requests <- requestStatus{r.Host}
+			cleared := atc.GetClearance(r.Host)
+
+			if !cleared {
+				fmt.Println("NOT CLEARED!")
+				return r, goproxy.NewResponse(r,
+					goproxy.ContentTypeText, http.StatusGatewayTimeout,
+					"circuit broken")
+			}
+
+			//requests <- requestStatus{r.Host}
 			return r, nil
 		})
 

@@ -10,7 +10,17 @@ import (
 )
 
 func isFailure(status int) bool {
-	return status > 499
+	return status > 499 || status == -1
+}
+
+type responseStatus struct {
+	host   string
+	status int
+	length int64
+}
+
+type requestStatus struct {
+	host string
 }
 
 func main() {
@@ -22,27 +32,7 @@ func main() {
 
 	atc := atc.NewAirTrafficControl()
 
-	type responseStatus struct {
-		host   string
-		status int
-		length int64
-	}
-
-	type requestStatus struct {
-		host string
-	}
-
-	//requests := make(chan requestStatus)
 	responses := make(chan responseStatus)
-
-	/*
-		go func() {
-			for {
-				msg := <-requests
-				fmt.Println("request host", msg.host)
-			}
-		}()
-	*/
 
 	go func() {
 		for {
@@ -59,7 +49,6 @@ func main() {
 
 	proxy.OnRequest().DoFunc(
 		func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
-			// todo: fail request if not cleared
 			cleared := atc.GetClearance(r.Host)
 
 			if !cleared {
@@ -69,7 +58,6 @@ func main() {
 					"circuit broken")
 			}
 
-			//requests <- requestStatus{r.Host}
 			return r, nil
 		})
 
@@ -77,6 +65,9 @@ func main() {
 		func(r *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
 			if r != nil {
 				responses <- responseStatus{r.Request.Host, r.StatusCode, r.ContentLength}
+			} else {
+				fmt.Println("response ERROR:", ctx.Error)
+				responses <- responseStatus{ctx.Req.Host, -1, -1}
 			}
 			return r
 		})
